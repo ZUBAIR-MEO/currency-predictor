@@ -1,0 +1,5 @@
+name: currency-predictor
+type: streamlit
+entrypoint: python app.py
+python:
+  version: 3.12
