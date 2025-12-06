@@ -1,84 +1,90 @@
-# Databricks notebook source
-# MAGIC %pip install streamlit pandas plotly
-# MAGIC
-# MAGIC import streamlit as st
-# MAGIC import pandas as pd
-# MAGIC
-# MAGIC # Load data from Delta tables
-# MAGIC df_clean = spark.table(
-# MAGIC     "currency_project.cleaned_data.exchange_rates"
-# MAGIC ).toPandas()
-# MAGIC df_stats = spark.table(
-# MAGIC     "currency_project.analytics.currency_statistics"
-# MAGIC ).toPandas()
-# MAGIC df_daily = spark.table(
-# MAGIC     "currency_project.analytics.daily_summary"
-# MAGIC ).toPandas()
-# MAGIC
-# MAGIC # Sidebar filters
-# MAGIC st.sidebar.header("Filters")
-# MAGIC currencies = st.sidebar.multiselect(
-# MAGIC     "Select Currencies",
-# MAGIC     options=df_clean['target_currency'].unique(),
-# MAGIC     default=['USD']
-# MAGIC )
-# MAGIC
-# MAGIC start_date = st.sidebar.date_input(
-# MAGIC     "Start Date",
-# MAGIC     value=df_clean['date'].min()
-# MAGIC )
-# MAGIC end_date = st.sidebar.date_input(
-# MAGIC     "End Date",
-# MAGIC     value=df_clean['date'].max()
-# MAGIC )
-# MAGIC
-# MAGIC # Convert DataFrame date column to datetime.date for comparison
-# MAGIC df_clean['date'] = pd.to_datetime(df_clean['date'])
-# MAGIC df_clean['date_only'] = df_clean['date'].dt.date
-# MAGIC
-# MAGIC df_filtered = df_clean[
-# MAGIC     (df_clean['target_currency'].isin(currencies)) &
-# MAGIC     (df_clean['date_only'] >= start_date) &
-# MAGIC     (df_clean['date_only'] <= end_date)
-# MAGIC ]
-# MAGIC
-# MAGIC # Main Dashboard
-# MAGIC st.title("💱 Currency Analytics Dashboard")
-# MAGIC
-# MAGIC # KPI Cards
-# MAGIC st.subheader("Latest EUR/USD Rate")
-# MAGIC latest_eur_usd = df_filtered[
-# MAGIC     df_filtered['target_currency'] == 'USD'
-# MAGIC ].sort_values('date', ascending=False).iloc[0]
-# MAGIC st.metric(
-# MAGIC     label="EUR/USD",
-# MAGIC     value=latest_eur_usd['exchange_rate_rounded']
-# MAGIC )
-# MAGIC
-# MAGIC # Line chart: EUR/USD trend
-# MAGIC st.subheader("EUR/USD Trend")
-# MAGIC eur_usd_trend = df_filtered[
-# MAGIC     df_filtered['target_currency'] == 'USD'
-# MAGIC ].sort_values('date')
-# MAGIC st.line_chart(
-# MAGIC     eur_usd_trend.set_index('date')['exchange_rate_rounded']
-# MAGIC )
-# MAGIC
-# MAGIC # Bar chart: Currency volatility
-# MAGIC st.subheader("Currency Volatility")
-# MAGIC st.bar_chart(
-# MAGIC     df_stats.set_index('target_currency')['volatility']
-# MAGIC )
-# MAGIC
-# MAGIC # Daily summary table
-# MAGIC st.subheader("Daily Summary")
-# MAGIC st.dataframe(
-# MAGIC     df_filtered[
-# MAGIC         [
-# MAGIC             'date',
-# MAGIC             'target_currency',
-# MAGIC             'exchange_rate_rounded',
-# MAGIC             'daily_change_percent'
-# MAGIC         ]
-# MAGIC     ]
-# MAGIC )
+# app.py
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from datetime import date
+
+# -----------------------------
+# Functions
+# -----------------------------
+
+@st.cache_data
+def load_data():
+    # Load data from CSV/Delta-exported files
+    df_clean = pd.read_csv("cleaned_exchange_rates.csv", parse_dates=['date'])
+    df_stats = pd.read_csv("currency_statistics.csv")
+    df_daily = pd.read_csv("daily_summary.csv", parse_dates=['date'])
+    df_clean['date_only'] = df_clean['date'].dt.date
+    return df_clean, df_stats, df_daily
+
+# -----------------------------
+# Load data
+# -----------------------------
+df_clean, df_stats, df_daily = load_data()
+
+# -----------------------------
+# Sidebar filters
+# -----------------------------
+st.sidebar.header("Filters")
+
+currencies = st.sidebar.multiselect(
+    "Select Currencies",
+    options=df_clean['target_currency'].unique(),
+    default=['USD']
+)
+
+start_date = st.sidebar.date_input(
+    "Start Date",
+    value=df_clean['date_only'].min()
+)
+
+end_date = st.sidebar.date_input(
+    "End Date",
+    value=df_clean['date_only'].max()
+)
+
+# Filter data
+df_filtered = df_clean[
+    (df_clean['target_currency'].isin(currencies)) &
+    (df_clean['date_only'] >= start_date) &
+    (df_clean['date_only'] <= end_date)
+]
+
+# -----------------------------
+# Main Dashboard
+# -----------------------------
+st.title("💱 Currency Analytics Dashboard")
+
+# KPI Card: Latest EUR/USD Rate
+st.subheader("Latest EUR/USD Rate")
+if not df_filtered[df_filtered['target_currency'] == 'USD'].empty:
+    latest_eur_usd = df_filtered[df_filtered['target_currency'] == 'USD'].sort_values('date', ascending=False).iloc[0]
+    st.metric(
+        label="EUR/USD",
+        value=latest_eur_usd['exchange_rate_rounded']
+    )
+else:
+    st.warning("No data available for EUR/USD in the selected date range.")
+
+# Line chart: EUR/USD trend
+st.subheader("EUR/USD Trend")
+eur_usd_trend = df_filtered[df_filtered['target_currency'] == 'USD'].sort_values('date')
+if not eur_usd_trend.empty:
+    st.line_chart(eur_usd_trend.set_index('date')['exchange_rate_rounded'])
+else:
+    st.warning("No EUR/USD trend data to display.")
+
+# Bar chart: Currency Volatility
+st.subheader("Currency Volatility")
+st.bar_chart(df_stats.set_index('target_currency')['volatility'])
+
+# Daily summary table
+st.subheader("Daily Summary")
+st.dataframe(
+    df_filtered[[
+        'date',
+        'target_currency',
+        'exchange_rate_rounded',
+        'daily_change_percent'
+    ]]
+)
